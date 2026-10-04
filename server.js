@@ -1,4 +1,5 @@
 const dns = require("dns");
+const analyticsRoutes = require("./routes/analyticsRoutes");
 
 dns.setServers([
     "8.8.8.8",
@@ -104,6 +105,8 @@ app.get("/", (req, res) => {
     });
 
 });
+
+app.use("/api/analytics", analyticsRoutes);
 
 
 // ======================================

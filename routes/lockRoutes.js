@@ -1,6 +1,7 @@
 const express = require("express");
 
 const Lock = require("../models/Lock");
+const LockSession = require("../models/LockSession");
 
 const authenticate = require("../middleware/auth");
 
@@ -48,14 +49,14 @@ router.post("/lock", authenticate, async (req, res) => {
     try {
 
         /*
-         * IMPORTANT:
-         *
-         * We only update the document if
-         * locked === false.
+         * Lock the system only when it is
+         * currently unlocked.
          *
          * This prevents two users from
          * acquiring the lock simultaneously.
          */
+
+        const lockedAt = new Date();
 
         const lock = await Lock.findOneAndUpdate(
             {
@@ -65,7 +66,7 @@ router.post("/lock", authenticate, async (req, res) => {
             {
                 locked: true,
                 lockedBy: req.user.userId,
-                lockedAt: new Date()
+                lockedAt: lockedAt
             },
             {
                 new: true
@@ -79,6 +80,17 @@ router.post("/lock", authenticate, async (req, res) => {
                 message: "System is already locked"
             });
         }
+
+
+        // ==================================
+        // CREATE LOCK SESSION
+        // ==================================
+
+        await LockSession.create({
+            userId: req.user.userId,
+            lockedAt: lockedAt,
+            status: "active"
+        });
 
 
         // We'll emit Socket.IO event later.
@@ -135,6 +147,42 @@ router.post("/unlock", authenticate, async (req, res) => {
             });
         }
 
+
+        // ==================================
+        // RECORD UNLOCK TIME
+        // ==================================
+
+        const unlockedAt = new Date();
+
+
+        // ==================================
+        // FIND ACTIVE LOCK SESSION
+        // ==================================
+
+        const lockSession = await LockSession.findOne({
+            userId: req.user.userId,
+            status: "active"
+        }).sort({
+            lockedAt: -1
+        });
+
+
+        // ==================================
+        // CLOSE LOCK SESSION
+        // ==================================
+
+        if (lockSession) {
+
+            lockSession.unlockedAt = unlockedAt;
+            lockSession.status = "closed";
+
+            await lockSession.save();
+        }
+
+
+        // ==================================
+        // UPDATE CURRENT LOCK STATE
+        // ==================================
 
         lock.locked = false;
         lock.lockedBy = null;
